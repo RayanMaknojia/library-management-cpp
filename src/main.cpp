@@ -10,6 +10,8 @@ void printMenu() {
               << "4. Borrow book\n"
               << "5. Return book\n"
               << "6. Remove book\n"
+              << "7. Save to file\n"
+              << "8. Load from file\n"
               << "0. Exit\n"
               << "Choose an option: ";
 }
@@ -74,6 +76,20 @@ int main() {
                 std::cout << "Book id to remove: ";
                 std::cin >> id;
                 std::cout << (library.removeBook(id) ? "Removed.\n" : "Could not remove (check id).\n");
+                break;
+            }
+            case 7: {
+                std::string filename;
+                std::cout << "Filename to save to (e.g. library_data.txt): ";
+                std::getline(std::cin, filename);
+                library.saveToFile(filename);
+                break;
+            }
+            case 8: {
+                std::string filename;
+                std::cout << "Filename to load from: ";
+                std::getline(std::cin, filename);
+                library.loadFromFile(filename);
                 break;
             }
             case 0:

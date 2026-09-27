@@ -17,6 +17,14 @@ public:
     bool borrowBook(int id);
     bool returnBook(int id);
 
+    // Phase 2: persistence.
+    // Writes every book to a plain text file, one line each.
+    void saveToFile(const std::string& filename) const;
+    // Reads books from a file previously written by saveToFile,
+    // replacing whatever is currently in memory. Returns false if the file
+    // couldn't be opened.
+    bool loadFromFile(const std::string& filename);
+
 private:
     std::vector<Book> m_books;
     int m_nextId = 1; // simple auto-incrementing id generator
