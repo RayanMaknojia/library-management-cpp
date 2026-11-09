@@ -1,140 +1,171 @@
 #include "Library.h"
-#include <iostream>
+#include "Utils.h"
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
+#include <utility>
 
-void Library::addBook(const std::string& title, const std::string& author) {
-    m_books.emplace_back(m_nextId, title, author);
-    std::cout << "Added book with id " << m_nextId << std::endl;
-    m_nextId++;
+int Library::addBook(const std::string &title, const std::string &author) {
+  std::string cleanTitle = utils::trim(title);
+  std::string cleanAuthor = utils::trim(author);
+
+  if (cleanTitle.empty() || cleanAuthor.empty()) {
+    throw std::invalid_argument("Title and author must not be empty");
+  }
+  if (cleanTitle.find('|') != std::string::npos || cleanAuthor.find('|') != std::string::npos) {
+    throw std::invalid_argument("Title and author must not contain the '|' character");
+  }
+
+  int id = m_nextId++;
+  m_books.emplace_back(id, cleanTitle, cleanAuthor);
+  return id;
 }
 
 bool Library::removeBook(int id) {
-    auto it = std::find_if(m_books.begin(), m_books.end(),
-                            [id](const Book& b) { return b.getId() == id; });
-    if (it == m_books.end()) {
-        return false;
-    }
-    m_books.erase(it);
-    return true;
-}
-
-void Library::listBooks() const {
-    if (m_books.empty()) {
-        std::cout << "No books in the library yet." << std::endl;
-        return;
-    }
-    for (const auto& book : m_books) {
-        book.print();
-    }
-}
-
-void Library::searchByTitle(const std::string& keyword) const {
-    bool found = false;
-    for (const auto& book : m_books) {
-        // Simple case-sensitive substring search for Phase 1.
-        if (book.getTitle().find(keyword) != std::string::npos) {
-            book.print();
-            found = true;
-        }
-    }
-    if (!found) {
-        std::cout << "No books matched \"" << keyword << "\"." << std::endl;
-    }
-}
-
-bool Library::borrowBook(int id) {
-    for (auto& book : m_books) {
-        if (book.getId() == id) {
-            if (book.isBorrowed()) {
-                std::cout << "Book is already borrowed." << std::endl;
-                return false;
-            }
-            book.setBorrowed(true);
-            return true;
-        }
-    }
+  auto it =
+      std::find_if(m_books.begin(), m_books.end(), [id](const Book &b) { return b.getId() == id; });
+  if (it == m_books.end()) {
     return false;
+  }
+  m_books.erase(it);
+  return true;
 }
 
-bool Library::returnBook(int id) {
-    for (auto& book : m_books) {
-        if (book.getId() == id) {
-            book.setBorrowed(false);
-            return true;
-        }
+ActionResult Library::borrowBook(int id) {
+  Book *book = findMutable(id);
+  if (!book) {
+    return ActionResult::NotFound;
+  }
+  if (book->isBorrowed()) {
+    return ActionResult::InvalidState;
+  }
+  book->setBorrowed(true);
+  return ActionResult::Ok;
+}
+
+ActionResult Library::returnBook(int id) {
+  Book *book = findMutable(id);
+  if (!book) {
+    return ActionResult::NotFound;
+  }
+  if (!book->isBorrowed()) {
+    return ActionResult::InvalidState;
+  }
+  book->setBorrowed(false);
+  return ActionResult::Ok;
+}
+
+std::optional<Book> Library::findById(int id) const {
+  for (const auto &book : m_books) {
+    if (book.getId() == id) {
+      return book;
     }
+  }
+  return std::nullopt;
+}
+
+std::vector<Book> Library::getAllBooks() const { return m_books; }
+
+std::vector<Book> Library::searchByTitle(const std::string &keyword) const {
+  std::vector<Book> results;
+  for (const auto &book : m_books) {
+    if (utils::containsIgnoreCase(book.getTitle(), keyword)) {
+      results.push_back(book);
+    }
+  }
+  return results;
+}
+
+std::vector<Book> Library::searchByAuthor(const std::string &keyword) const {
+  std::vector<Book> results;
+  for (const auto &book : m_books) {
+    if (utils::containsIgnoreCase(book.getAuthor(), keyword)) {
+      results.push_back(book);
+    }
+  }
+  return results;
+}
+
+std::vector<Book> Library::sortedByTitle() const {
+  std::vector<Book> sorted = m_books;
+  std::sort(sorted.begin(), sorted.end(), [](const Book &a, const Book &b) {
+    return utils::toLower(a.getTitle()) < utils::toLower(b.getTitle());
+  });
+  return sorted;
+}
+
+std::vector<Book> Library::sortedByAuthor() const {
+  std::vector<Book> sorted = m_books;
+  std::sort(sorted.begin(), sorted.end(), [](const Book &a, const Book &b) {
+    return utils::toLower(a.getAuthor()) < utils::toLower(b.getAuthor());
+  });
+  return sorted;
+}
+
+std::size_t Library::size() const { return m_books.size(); }
+
+bool Library::saveToFile(const std::string &filename) const {
+  std::ofstream outFile(filename);
+  if (!outFile) {
     return false;
+  }
+  for (const auto &book : m_books) {
+    outFile << book.getId() << "|" << book.getTitle() << "|" << book.getAuthor() << "|"
+            << (book.isBorrowed() ? 1 : 0) << "\n";
+  }
+  return static_cast<bool>(outFile);
 }
 
-// --- Phase 2: persistence ---
-//
-// File format: one book per line, fields separated by '|':
-//   id|title|author|borrowedFlag
-// Example line: 3|The Hobbit|J.R.R. Tolkien|0
-//
-// Limitation: since '|' is the separator, a title or author containing '|'
-// would break parsing. Fine for a learning project; a real system would use
-// a proper format like CSV with escaping, or JSON.
+LoadResult Library::loadFromFile(const std::string &filename) {
+  LoadResult result;
+  std::ifstream inFile(filename);
+  if (!inFile) {
+    return result;
+  }
+  result.opened = true;
 
-void Library::saveToFile(const std::string& filename) const {
-    std::ofstream outFile(filename); // opens (creates/overwrites) the file for writing
+  // Parse into temporary variables first, so a half-read file never
+  // leaves the library in a broken state.
+  std::vector<Book> loaded;
+  int nextId = 1;
 
-    if (!outFile) {
-        // std::ofstream converts to false if opening failed
-        // (e.g. bad path, no write permission).
-        std::cerr << "Error: could not open file for writing: " << filename << std::endl;
-        return;
+  std::string line;
+  while (std::getline(inFile, line)) {
+    if (utils::trim(line).empty()) {
+      continue;
     }
 
-    for (const auto& book : m_books) {
-        outFile << book.getId() << "|"
-                << book.getTitle() << "|"
-                << book.getAuthor() << "|"
-                << book.isBorrowed() << "\n";
-    }
+    std::stringstream ss(line);
+    std::string idStr, title, author, borrowedStr;
+    std::getline(ss, idStr, '|');
+    std::getline(ss, title, '|');
+    std::getline(ss, author, '|');
+    std::getline(ss, borrowedStr, '|');
 
-    std::cout << "Saved " << m_books.size() << " book(s) to " << filename << std::endl;
-    // outFile closes automatically when it goes out of scope (its destructor
-    // flushes and closes the file) - no explicit outFile.close() needed.
+    try {
+      int id = std::stoi(idStr); // throws if idStr isn't a number
+      if (title.empty() || author.empty() || (borrowedStr != "0" && borrowedStr != "1")) {
+        throw std::invalid_argument("bad line");
+      }
+      loaded.emplace_back(id, title, author, borrowedStr == "1");
+      nextId = std::max(nextId, id + 1);
+      ++result.loaded;
+    } catch (const std::exception &) {
+      ++result.skipped;
+    }
+  }
+
+  m_books = std::move(loaded);
+  m_nextId = nextId;
+  return result;
 }
 
-bool Library::loadFromFile(const std::string& filename) {
-    std::ifstream inFile(filename); // opens the file for reading
-
-    if (!inFile) {
-        std::cerr << "Error: could not open file for reading: " << filename << std::endl;
-        return false;
+Book *Library::findMutable(int id) {
+  for (auto &book : m_books) {
+    if (book.getId() == id) {
+      return &book;
     }
-
-    m_books.clear();  // wipe whatever is currently in memory
-    m_nextId = 1;      // will be recalculated from the loaded ids below
-
-    std::string line;
-    while (std::getline(inFile, line)) {
-        if (line.empty()) {
-            continue; // skip blank lines rather than crashing on them
-        }
-
-        std::stringstream ss(line); // lets us treat the line like an input stream
-        std::string idStr, title, author, borrowedStr;
-
-        std::getline(ss, idStr, '|');
-        std::getline(ss, title, '|');
-        std::getline(ss, author, '|');
-        std::getline(ss, borrowedStr, '|');
-
-        int id = std::stoi(idStr);          // string -> int conversion
-        bool borrowed = (borrowedStr == "1");
-
-        m_books.emplace_back(id, title, author, borrowed);
-
-        if (id >= m_nextId) {
-            m_nextId = id + 1; // keep auto-increment consistent with loaded data
-        }
-    }
-
-    std::cout << "Loaded " << m_books.size() << " book(s) from " << filename << std::endl;
-    return true;
+  }
+  return nullptr;
 }
