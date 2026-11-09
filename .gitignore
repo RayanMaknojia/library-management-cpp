@@ -6,3 +6,5 @@ build/
 .idea/
 CMakeFiles/
 CMakeCache.txt
+
+library_data.txt
